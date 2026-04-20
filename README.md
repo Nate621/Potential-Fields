@@ -13,6 +13,8 @@ The resulting trajectory is visualized along with a vector field using Matplot++
 
 ---
 
+![Path Planning Result](ExportedGraphs/Trial_1.png)
+
 ## Key Concepts
 
 ### Artificial Potential Fields
