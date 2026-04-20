@@ -4,13 +4,13 @@
 #include <cmath>
 
 #define ATTRACTIVE_INTENSITY_GAIN 1.0
-#define REPULSIVE_INTENSITY_GAIN 20.0
-#define REPULSIVE_SENSING_DISTANCE 1.0
+#define REPULSIVE_INTENSITY_GAIN 120.0
+#define REPULSIVE_SENSING_DISTANCE 2.0
 #define TIME_STEP 0.05
 #define DIMENSION 2
-#define TOTAL_ATTEMPTS 200
+#define TOTAL_ATTEMPTS 1000
 #define GOAL_REACHED_THRESHOLD 0.001
-// Forgive the obscene amount of comments: this is how I normally learn. I delete them later on, don't worry, lol
+
 /*
 It is correct to call these positions in the geometric sense (referring to the goal, the obstacle, and the robot), but they should NOT be interpreted 
 as states of a Newtonian dynamical system, since the algorithm does not simulate physical mass, velocity, or acceleration. Instead, 
@@ -25,81 +25,129 @@ in position (can't call this kinematics either, but it's a somewhat kinematic ru
     - Repulsive Source = Obstacle's geometric location 
 
 */
-// Want them to be const so that the current position/goal will not be modified during the function call
+
 /* Attractive energy equation:
 (1/2) * ATTRACTIVE_INTENSITY_GAIN * (current pose - goal pose)^2
-
-Taking the gradient of this yields the following (Attractive Force):
 */
 arma::vec attractive_force(const arma::vec& robot_pos, const arma::vec& goal_pos){
-    return -ATTRACTIVE_INTENSITY_GAIN*(robot_pos - goal_pos);
+    return -ATTRACTIVE_INTENSITY_GAIN * (robot_pos - goal_pos);
 }
 
-// We are given multiple obstacles! 
 arma::vec repulsive_force(const arma::vec& robot_pos, const std::vector<arma::vec>& obstacles){
-    
+
     arma::vec total_repulsive_force(DIMENSION, arma::fill::zeros);
 
-    // For loop to iterate through all obstacles
-    for(const auto& obs_pos: obstacles){
-        
-        // Norm: Any function that takes a vector and returns a number
-        // Magnitude: Eucludian Norm (L2 norm)
+    for(const auto& obs_pos : obstacles){
+
         arma::vec displacement_vec = robot_pos - obs_pos;
         double magnitude = arma::norm(displacement_vec);
-        arma::vec force(DIMENSION, arma::fill::zeros);
 
-        // Do not just immediately return the repulsive force! We need to first check if the 
-        // obstacle is close enough to an obstacle to apply a repulsive force
         if(magnitude > REPULSIVE_SENSING_DISTANCE || magnitude == 0){
-            // Not close enough to obstacle or we made it to goal! Return zero force vector    
             continue;
         }
 
-        // Normalize our vector to only get direction (we want force to only be influenced by JUST the magnitude, NOT the direction!)
-        // If we don't normalize, our strength increases incorrectly because our displacement_vec vector contains magnitude information! (So normalizea and get the unit vector to only get direction)
         arma::vec direction = displacement_vec / magnitude;
-        double repulsive_strength = REPULSIVE_INTENSITY_GAIN * ((1/magnitude) - (1/REPULSIVE_SENSING_DISTANCE)) * std::pow((1/magnitude), 2);
-        total_repulsive_force += magnitude * direction;
-    
+
+        double repulsive_strength = REPULSIVE_INTENSITY_GAIN *
+            ((1.0 / magnitude) - (1.0 / REPULSIVE_SENSING_DISTANCE)) *
+            std::pow((1.0 / magnitude), 2);
+
+        total_repulsive_force += repulsive_strength * direction;
     }
 
-    // Find sum total of repulsive forces and return that!
     return total_repulsive_force;
-
 }
 
 int main(){
 
-    arma::vec att_force, rep_force, total_force,
-        robot_pos{0, 0},
-        goal_pos{5, 3};
+    arma::vec robot_pos{0, 0};
+    arma::vec goal_pos{8, 7};
 
-    // Obstacle locations
     std::vector<arma::vec> obstacles{
-        {-1, 1},
         {2, 4},
+        {6, 3},
         {2, 2}
     };
 
+    std::vector<double> x_path, y_path;
+
     for(int i = 0; i < TOTAL_ATTEMPTS; i++){
 
-        att_force = attractive_force(robot_pos, goal_pos);
-        rep_force = repulsive_force(robot_pos, obstacles);
+        arma::vec att_force = attractive_force(robot_pos, goal_pos);
+        arma::vec rep_force = repulsive_force(robot_pos, obstacles);
+        arma::vec total_force = att_force + rep_force;
 
-        total_force = att_force + rep_force;
-        robot_pos += TIME_STEP * total_force; // Should initially be extremely high; this will reach zero once we reach goal 
-        std::cout << "Step " << i << ":" << std::endl;
-        std::cout << "Robot's Position: (" << robot_pos.at(0) << ", " << robot_pos.at(1) << ")" << std::endl;  
+        robot_pos += TIME_STEP * total_force;
+
+        x_path.push_back(robot_pos.at(0));
+        y_path.push_back(robot_pos.at(1));
 
         if(arma::norm(robot_pos - goal_pos) < GOAL_REACHED_THRESHOLD){
-            std::cout << "Reached goal within tolerance! Exiting loop..." << std::endl;
+            std::cout << "Reached goal at step " << i << "\n";
             break;
         }
-    }    
+    }
 
-    
-    
+    matplot::figure()->size(1200, 1000);
+    matplot::hold(matplot::on);
+
+    matplot::xlim({-10, 10});
+    matplot::ylim({-10, 10});
+    matplot::axis(matplot::equal);
+    matplot::grid(matplot::on);
+    matplot::title("Potential Field Path Planning");
+
+    // Obstacles
+    std::vector<double> obs_x, obs_y;
+    for(const auto& obs : obstacles){
+        obs_x.push_back(obs.at(0));
+        obs_y.push_back(obs.at(1));
+    }
+
+    auto obs_plot = matplot::scatter(obs_x, obs_y, 40);
+    obs_plot->marker_face_color("red");
+
+    // Goal
+    auto goal_plot = matplot::scatter(
+        std::vector<double>{goal_pos.at(0)},
+        std::vector<double>{goal_pos.at(1)},
+        30
+    );
+    goal_plot->marker_face_color("blue");
+
+    // Trajectory (final only)
+    auto traj = matplot::plot(x_path, y_path, "-o");
+    traj->line_width(1);
+
+    // This is for the vector field
+    std::vector<double> X, Y, U, V;
+
+    double xmin = -10, xmax = 10;
+    double ymin = -10, ymax = 10;
+    double step = 1.0;
+
+    for(double x = xmin; x <= xmax; x += step){
+        for(double y = ymin; y <= ymax; y += step){
+
+            arma::vec pos{ x, y };
+
+            arma::vec att = attractive_force(pos, goal_pos);
+            arma::vec rep = repulsive_force(pos, obstacles);
+            arma::vec total = att + rep;
+
+            X.push_back(x);
+            Y.push_back(y);
+
+            double scale = 0.2;
+            U.push_back(scale * total(0));
+            V.push_back(scale * total(1));
+        }
+    }
+
+    auto q = matplot::quiver(X, Y, U, V);
+    q->color("black");
+
+    matplot::show();
 
     return 0;
 }
